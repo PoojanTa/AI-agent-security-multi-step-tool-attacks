@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.mypy_cache/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Envs
+.venv/
+venv/
+env/
+
+# Models / large artifacts (never commit GGUF/checkpoints)
+*.gguf
+*.bin
+*.safetensors
+*.pt
+*.onnx
+
+# Scratch / logs
+experiments/_*.log
+*.log
+
+# Decoy fixture files with example-secret patterns (synthetic; break GitHub push protection)
+
+# SDK decoy secret fixtures (synthetic; trip GitHub secret scanning). Kept on disk;
+# reproducible from the SDK install. Not needed by attack_framework.
+aicomp_sdk/fixtures/file_seed/
