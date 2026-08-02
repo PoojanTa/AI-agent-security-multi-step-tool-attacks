@@ -2,11 +2,24 @@
 
 Status tracker. Detailed design in `docs/`, per-version analysis in `notes/`.
 
-Last updated: 2026-08-03
+Last updated: 2026-08-03 (V4.1 submit loop)
 
 ---
 
 ## Done
+
+### V4.1 — submit A/B: multipost-k=4 + template/budget hardening ✅
+- **`kaggle_package/attack_standalone.py` (submit source of truth):**
+  - Default `MULTIPOST_K=4` (first hosted density bet; projected ~1.47× vs single-post).
+  - Race **7 multipost phrasings** when k>1 (direct/toolish/numbered/ops/channel_a/b/
+    strict); 11 single-post phrasings retained for `MULTIPOST_K=1` fallback.
+  - Budget: multipost uses `REPLAY_SAFE=0.92`, `PROBE_REPS=1`, hop-anchor `count_cap`
+    (~4.32 s/hop); single-post keeps `0.94` / 2 reps. Measured unit cost tightens cap.
+  - Fill schedule 2×-weights the cheaper half of eligible phrasings (still mixes).
+  - Probe slot advance consumes k URLs so races don't collide with fill destinations.
+- Regenerated `kaggle_package/submit_notebook.ipynb` via `_build_submit_nb.py`.
+- Mirrored template/budget changes in `attack_framework/probe_fill.py`.
+- Champion notebook still untouched (replace only after hosted > 89.055).
 
 ### V4 — replay-budget constraint + timeout cliff + multi-post density ✅ (see notes/v4.md)
 - **Reframed the objective** by reading the gateway: the binding constraint is the
@@ -82,10 +95,10 @@ Last updated: 2026-08-03
 ## Remaining
 
 ### Next (highest leverage) — needs a hosted run to decide
-- [ ] **Hosted A/B: multi-post `MULTIPOST_K=4`, then `8`, vs single-post champion.**
-      Top priority — attacks the actual binding constraint (replay budget). Projected
-      ~1.5–1.8×; downside = champion baseline. Flip `MULTIPOST_K` in the standalone,
-      rebuild the notebook, submit. (notes/v4.md)
+- [x] **Submit package set to `MULTIPOST_K=4` + multi-phrasing** (V4.1) — upload
+      `kaggle_package/submit_notebook.ipynb` (Internet OFF) for the first hosted A/B.
+- [ ] **Read hosted score for k=4.** If > 89.055 and no timeout → try `MULTIPOST_K=8`.
+      If timeout/INVALID → lower count (drop `REPLAY_SAFE` further) or fall back to k=1.
 - [ ] **Hosted A/B: multi-template fill vs single-template champion.** Validated
       *correct* locally; real-LLM compliance unknown. Only a hosted run > 89.055 justifies
       replacing the champion.
