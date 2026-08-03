@@ -1,10 +1,26 @@
+"""Build self-contained Kaggle submit notebooks from attack_standalone.py.
+
+Default (k=1, single-post):  kaggle_package/submit_notebook.ipynb
+Modest-density A/B (k=2):     kaggle_package/submit_notebook_k2.ipynb
+
+The source file keeps MULTIPOST_K = 1 (the diagnosed winner: a dense single-post farm
+that finishes replay with headroom). The k=2 notebook is produced by rewriting only
+that constant inside the embedded %%writefile cell — do not hand-edit the notebooks;
+re-run this script after changing attack_standalone.py.
+
+  python kaggle_package/_build_submit_nb.py
+"""
+
+from __future__ import annotations
+
 import json
+import re
 from pathlib import Path
 
-attack = Path("kaggle_package/attack_standalone.py").read_text(encoding="utf-8")
-write_src = "%%writefile /kaggle/working/attack.py\n" + attack
+ROOT = Path(__file__).resolve().parent
+STANDALONE = ROOT / "attack_standalone.py"
 
-server_src = r'''import csv
+SERVER_SRC = r'''import csv
 import glob
 import importlib.util
 import os
@@ -46,6 +62,7 @@ assert smoke
 assert all(1 <= len(c.user_messages) <= 32 for c in smoke)
 assert all(isinstance(m, str) and 0 < len(m) <= 2000 for c in smoke for m in c.user_messages)
 print("attack.py compile/import/structure smoke: PASS")
+print("MULTIPOST_K =", getattr(module, "MULTIPOST_K", "?"))
 
 from kaggle_evaluation.jed_attack_134815.jed_attack_inference_server import JEDAttackInferenceServer
 server = JEDAttackInferenceServer()
@@ -66,13 +83,26 @@ else:
     print("NEXT: Internet OFF -> Save Version -> Submit that version")
 '''
 
-md0 = """# JED probe-fill submission (official pattern)
+
+def _md(k: int) -> str:
+    label = "DEFAULT (MULTIPOST_K=1, single-post)" if k == 1 else f"A/B only (MULTIPOST_K={k})"
+    when = (
+        "Submit this first."
+        if k == 1
+        else "Submit only after the single-post run scores and has no timeout/INVALID."
+    )
+    return f"""# JED probe-fill submission — {label}
 
 ## CRITICAL before Save Version
 1. Right sidebar → **Settings**
 2. Set **Internet = Off** (Submit is blocked if Internet is on)
 3. Do **not** need our dataset — this notebook writes `attack.py` itself
 4. Keep competition data attached
+
+## This variant
+- Embedded attack uses **MULTIPOST_K = {k}**
+- {when}
+- Rebuild from source: `python kaggle_package/_build_submit_nb.py`
 
 ## Flow
 1. Write `/kaggle/working/attack.py`
@@ -87,46 +117,88 @@ md0 = """# JED probe-fill submission (official pattern)
 """
 
 
-def lines(text: str):
-    # Keep final newline style notebook-friendly
+def lines(text: str) -> list[str]:
     return [ln + "\n" for ln in text.splitlines()]
 
 
-nb = {
-    "nbformat": 4,
-    "nbformat_minor": 5,
-    "metadata": {
-        "kernelspec": {"display_name": "Python 3", "language": "python", "name": "python3"},
-        "language_info": {"name": "python"},
-        "kaggle": {
-            "accelerator": "none",
-            "isInternetEnabled": False,
-            "language": "python",
-            "sourceType": "notebook",
-            "isGpuEnabled": False,
-        },
-    },
-    "cells": [
-        {"cell_type": "markdown", "metadata": {}, "source": lines(md0)},
-        {"cell_type": "markdown", "metadata": {}, "source": ["## 1) Write attack.py\n"]},
-        {
-            "cell_type": "code",
-            "metadata": {},
-            "execution_count": None,
-            "outputs": [],
-            "source": lines(write_src),
-        },
-        {"cell_type": "markdown", "metadata": {}, "source": ["## 2) Start evaluation server\n"]},
-        {
-            "cell_type": "code",
-            "metadata": {},
-            "execution_count": None,
-            "outputs": [],
-            "source": lines(server_src),
-        },
-    ],
-}
+def _with_k(attack: str, k: int) -> str:
+    """Rewrite MULTIPOST_K assignment for an A/B notebook without touching source file."""
+    replaced, n = re.subn(
+        r"^MULTIPOST_K = \d+\s*$",
+        f"MULTIPOST_K = {k}",
+        attack,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if n != 1:
+        raise RuntimeError("could not rewrite MULTIPOST_K in attack_standalone.py")
+    return replaced
 
-out = Path("kaggle_package/submit_notebook.ipynb")
-out.write_text(json.dumps(nb, indent=1), encoding="utf-8")
-print("wrote", out, "attack_chars", len(attack))
+
+def build_notebook(attack: str, k: int, out: Path) -> None:
+    write_src = "%%writefile /kaggle/working/attack.py\n" + attack
+    nb = {
+        "nbformat": 4,
+        "nbformat_minor": 5,
+        "metadata": {
+            "kernelspec": {
+                "display_name": "Python 3",
+                "language": "python",
+                "name": "python3",
+            },
+            "language_info": {"name": "python"},
+            "kaggle": {
+                "accelerator": "none",
+                "isInternetEnabled": False,
+                "language": "python",
+                "sourceType": "notebook",
+                "isGpuEnabled": False,
+            },
+        },
+        "cells": [
+            {"cell_type": "markdown", "metadata": {}, "source": lines(_md(k))},
+            {"cell_type": "markdown", "metadata": {}, "source": ["## 1) Write attack.py\n"]},
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": lines(write_src),
+            },
+            {
+                "cell_type": "markdown",
+                "metadata": {},
+                "source": ["## 2) Start evaluation server\n"],
+            },
+            {
+                "cell_type": "code",
+                "metadata": {},
+                "execution_count": None,
+                "outputs": [],
+                "source": lines(SERVER_SRC),
+            },
+        ],
+    }
+    out.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+    print("wrote", out, "MULTIPOST_K=", k, "attack_chars", len(attack))
+
+
+def main() -> None:
+    source = STANDALONE.read_text(encoding="utf-8")
+    # Source of truth stays at whatever MULTIPOST_K is in the file (default 1).
+    m = re.search(r"^MULTIPOST_K = (\d+)\s*$", source, flags=re.MULTILINE)
+    if not m:
+        raise RuntimeError("MULTIPOST_K not found in attack_standalone.py")
+    default_k = int(m.group(1))
+    if default_k != 1:
+        print(
+            "WARNING: attack_standalone.py MULTIPOST_K=%d (expected 1 for default submit)"
+            % default_k
+        )
+
+    build_notebook(source, default_k, ROOT / "submit_notebook.ipynb")
+    build_notebook(_with_k(source, 2), 2, ROOT / "submit_notebook_k2.ipynb")
+
+
+if __name__ == "__main__":
+    main()
